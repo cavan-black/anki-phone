@@ -1,0 +1,5 @@
+.venv/
+backups/
+*.anki2
+.export.anki2
+__pycache__/
