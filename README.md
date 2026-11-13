@@ -42,3 +42,13 @@ It backs the collection up to `backups/` before every import.
 `media/` fills up as cards come due and is never pruned. Day one is ~15 MB; it converges
 on the deck's full ~134 MB over a few weeks and then stops growing. Copying only the
 current batch instead would rewrite ~15 MB of git objects every day.
+
+## Public repo
+
+Streamlit Community Cloud allows one private app per account, which is already spoken
+for, so this repo is public and the app is reachable by anyone who has the URL. The app
+holds a GitHub token that can write here, so set an `APP_PIN` secret alongside `GH_PAT`
+and the app asks for it before showing anything. With no `APP_PIN` set the app is open.
+
+What is public, and worth knowing: the deck's audio under `media/`, and your review
+timings in `data/`. No credentials — those live only in Streamlit's secrets store.

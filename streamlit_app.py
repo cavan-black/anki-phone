@@ -87,6 +87,31 @@ def push_answers(batch_id, answers):
         return False, str(exc)
 
 
+def gate():
+    """A Community Cloud app on a public repo is reachable by anyone with the URL, and
+    this one carries a token that can write to the repo. So it asks for a PIN first.
+    Set APP_PIN in the app's secrets; with no PIN set the app stays open, which is only
+    sane while the repo is private."""
+    try:
+        pin = st.secrets.get("APP_PIN")
+    except Exception:
+        pin = None
+    if not pin or st.session_state.get("unlocked"):
+        return
+    st.title("Anki")
+    entered = st.text_input("PIN", type="password", label_visibility="collapsed",
+                            placeholder="PIN")
+    if entered:
+        if entered == pin:
+            st.session_state["unlocked"] = True
+            st.rerun()
+        else:
+            st.error("Nope.")
+    st.stop()
+
+
+gate()
+
 due = load_due()
 if not due or not due.get("cards"):
     st.title("Nothing to review")
