@@ -3,3 +3,4 @@ backups/
 *.anki2
 .export.anki2
 __pycache__/
+.streamlit/secrets.toml
