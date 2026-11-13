@@ -63,7 +63,10 @@ def audio_bytes(name):
 
 def push_answers(batch_id, answers):
     """Commit data/reviews.json to the private repo. Returns (ok, error)."""
-    token = st.secrets.get("GH_PAT")
+    try:
+        token = st.secrets.get("GH_PAT")
+    except Exception:
+        token = None          # no secrets.toml at all, e.g. running locally
     if not token:
         return False, "no GH_PAT secret"
     api = f"https://api.github.com/repos/{REPO}/contents/data/reviews.json"
@@ -152,8 +155,10 @@ saved_note = "" if ss.saved_upto >= done else f" · {done - ss.saved_upto} unsav
 st.markdown(f'<div class="meta">{done} / {total}'
             f' · {card["deck"]}{saved_note}</div>', unsafe_allow_html=True)
 
-st.markdown(f'<div class="word">{card["word_furigana"] or card["word"]}</div>',
-            unsafe_allow_html=True)
+# The front is the bare word. Furigana belongs on the back — putting it here would hand
+# over the reading, which is most of what the card is asking for.
+front = card["word_furigana"] if ss.revealed else card["word"]
+st.markdown(f'<div class="word">{front}</div>', unsafe_allow_html=True)
 
 if not ss.revealed:
     if st.button("Show answer", use_container_width=True, type="primary"):
