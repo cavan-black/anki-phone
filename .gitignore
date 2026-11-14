@@ -4,3 +4,7 @@ backups/
 .export.anki2
 __pycache__/
 .streamlit/secrets.toml
+
+# Anki creates a <name>.media folder beside any collection it opens, including the
+# throwaway copies used to rehearse an import.
+*.media/
