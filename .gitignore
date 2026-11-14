@@ -8,3 +8,7 @@ __pycache__/
 # Anki creates a <name>.media folder beside any collection it opens, including the
 # throwaway copies used to rehearse an import.
 *.media/
+
+# The deck audio is no longer published - see the note in export_due.py. The local
+# copy is kept so nothing has to be re-downloaded if that decision is ever revisited.
+media/

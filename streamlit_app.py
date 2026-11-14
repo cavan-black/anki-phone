@@ -6,6 +6,9 @@ the repo. import_reviews.py then replays those answers through Anki's own schedu
 desktop. Keeping the scheduling on one side of the wire is what makes it safe to review
 here: the worst a bad session can do is record answers, never corrupt intervals.
 
+There is no audio. The repo is public, Kaishi 1.5k carries no licence, and shipping its
+mp3s to a public URL was a redistribution nobody granted — so the card is text only.
+
 Persistence works the same way the marathon dashboard's does, and for the same reason —
 Streamlit Cloud's filesystem is ephemeral, so anything written locally is gone at the next
 redeploy. Answers are committed to the private repo through the GitHub API, which needs a
@@ -19,7 +22,6 @@ import streamlit as st
 REPO = "cavan-black/anki-phone"
 HERE = os.path.dirname(os.path.abspath(__file__))
 DUE = os.path.join(HERE, "data", "due.json")
-MEDIA = os.path.join(HERE, "media")
 SAVE_EVERY = 10          # answers between pushes; a crash costs at most this many
 RATINGS = [("Again", 1), ("Hard", 2), ("Good", 3), ("Easy", 4)]
 
@@ -52,13 +54,6 @@ def load_due():
         return None
     with open(DUE, encoding="utf-8") as fh:
         return json.load(fh)
-
-
-def audio_bytes(name):
-    if not name:
-        return None
-    p = os.path.join(MEDIA, name)
-    return open(p, "rb").read() if os.path.exists(p) else None
 
 
 def push_answers(batch_id, answers):
@@ -190,9 +185,6 @@ if not ss.revealed:
         ss.revealed = True
         st.rerun()
 else:
-    wa = audio_bytes(card.get("word_audio"))
-    if wa:
-        st.audio(wa, format="audio/mp3", autoplay=True)
     if card["reading"]:
         st.markdown(f'<div class="reading">{card["reading"]}</div>', unsafe_allow_html=True)
     st.markdown(f'<div class="meaning">{card["meaning"]}</div>', unsafe_allow_html=True)
@@ -201,9 +193,6 @@ else:
                     unsafe_allow_html=True)
         st.markdown(f'<div class="sent-en">{card["sentence_meaning"]}</div>',
                     unsafe_allow_html=True)
-        sa = audio_bytes(card.get("sentence_audio"))
-        if sa:
-            st.audio(sa, format="audio/mp3")
     st.write("")
     for col, (label, val) in zip(st.columns(4), RATINGS):
         if col.button(label, use_container_width=True, key=f"r{val}_{ss.i}"):

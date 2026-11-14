@@ -1,5 +1,4 @@
-"""Pull today's due cards out of the Anki collection into data/due.json, and copy any
-audio they need into media/.
+"""Pull today's due cards out of the Anki collection into data/due.json.
 
 Read-only against the collection: it works on a copy, so it is safe to run with Anki
 open. Nothing here computes a schedule. Which cards are due is read straight from the
@@ -7,10 +6,14 @@ queues, and what answering them does to the schedule is decided later, by Anki i
 in import_reviews.py. That split is the whole safety story — the phone never guesses an
 interval, so a bad batch can never corrupt 17k reviews of history.
 
-Media is copied once and never deleted. Day one costs ~15 MB; after a few weeks the
-repo holds most of the deck's audio and new exports copy almost nothing. The
-alternative — shipping only the current batch and clearing the rest — would rewrite
-~15 MB of git objects every single day.
+NO AUDIO, deliberately. This used to copy the deck's mp3s into media/ so the phone
+could play them. The repo has to be public — Community Cloud's free tier allows one
+private app and the marathon dashboard holds it — and Kaishi 1.5k ships with no licence
+at all, its audio partly from the AJT Japanese add-on and partly from assorted Core
+decks. Publishing 575 of those files was a redistribution nobody granted. Card text
+still goes out in due.json, which is the same question at a far smaller scale: one
+day's slice of a deck you already own is a defensible line, 16 MB of someone else's
+audio on a public URL is not.
 
 Usage:  python export_due.py [--new N]
 """
@@ -18,12 +21,10 @@ import argparse, json, os, re, shutil, sqlite3, time, uuid
 
 COL_DIR = os.path.join(os.environ["APPDATA"], "Anki2", "User 1")
 COL = os.path.join(COL_DIR, "collection.anki2")
-MEDIA_SRC = os.path.join(COL_DIR, "collection.media")
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 WORK = os.path.join(HERE, ".export.anki2")
 DATA = os.path.join(HERE, "data")
-MEDIA_DST = os.path.join(HERE, "media")
 
 SOUND = re.compile(r"\[sound:(.*?)\]")
 TAG = re.compile(r"<[^>]+>")
@@ -47,7 +48,6 @@ def main():
     args = ap.parse_args()
 
     os.makedirs(DATA, exist_ok=True)
-    os.makedirs(MEDIA_DST, exist_ok=True)
     shutil.copy2(COL, WORK)
     db = sqlite3.connect(WORK)
 
@@ -76,8 +76,6 @@ def main():
             "sentence_furigana": furigana_html(f.get("Sentence Furigana")),
             "sentence_meaning": plain(f.get("Sentence Meaning")),
             "pitch": f.get("Pitch Accent", ""),
-            "word_audio": (SOUND.findall(f.get("Word Audio") or "") or [None])[0],
-            "sentence_audio": (SOUND.findall(f.get("Sentence Audio") or "") or [None])[0],
         }
         if queue == 1 and due <= now_s:
             learning.append(card)
@@ -88,21 +86,6 @@ def main():
 
     new.sort(key=lambda c: c["card_id"])
     batch = learning + review + new[:args.new]
-
-    copied = 0
-    for card in batch:
-        for key in ("word_audio", "sentence_audio"):
-            name = card.get(key)
-            if not name:
-                continue
-            dst = os.path.join(MEDIA_DST, name)
-            if not os.path.exists(dst):
-                src = os.path.join(MEDIA_SRC, name)
-                if os.path.exists(src):
-                    shutil.copy2(src, dst)
-                    copied += 1
-                else:
-                    card[key] = None
 
     out = {
         "batch_id": uuid.uuid4().hex[:12],
@@ -129,7 +112,7 @@ def main():
     db.close()
     os.remove(WORK)
     print(json.dumps(out["counts"], indent=1))
-    print(f"batch {out['batch_id']}: {len(batch)} cards, {copied} new audio files copied")
+    print(f"batch {out['batch_id']}: {len(batch)} cards")
 
 
 if __name__ == "__main__":
