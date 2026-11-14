@@ -6,14 +6,23 @@ the repo. import_reviews.py then replays those answers through Anki's own schedu
 desktop. Keeping the scheduling on one side of the wire is what makes it safe to review
 here: the worst a bad session can do is record answers, never corrupt intervals.
 
+GRADING IS BINARY, the way Migaku does it: you either got it or you didn't. Anki's four
+buttons ask you to appraise your own recall on a scale while the answer is still on the
+screen, which is slow and mostly noise. Two buttons is a judgement you can make in under
+a second, which is the whole point of reviewing on a phone.
+
+What goes down the wire is still Anki's 1-4 ease, so nothing downstream changes: AGAIN
+sends 1, GOT IT sends 3 (Good). Hard and Easy are simply never emitted. If you want the
+full scale for a session, do it on the desktop — the collection is the same one.
+
 There is no audio. The repo is public, Kaishi 1.5k carries no licence, and shipping its
 mp3s to a public URL was a redistribution nobody granted — so the card is text only.
 
 Persistence works the same way the marathon dashboard's does, and for the same reason —
 Streamlit Cloud's filesystem is ephemeral, so anything written locally is gone at the next
-redeploy. Answers are committed to the private repo through the GitHub API, which needs a
-GH_PAT secret with repo scope. Without one the app still works; you just have to use the
-download button at the end and drop the file in yourself.
+redeploy. Answers are committed to the repo through the GitHub API, which needs a GH_PAT
+secret with repo scope. Without one the app still works; you just have to use the download
+button at the end and drop the file in yourself.
 """
 import base64, json, os, time
 import requests
@@ -23,26 +32,77 @@ REPO = "cavan-black/anki-phone"
 HERE = os.path.dirname(os.path.abspath(__file__))
 DUE = os.path.join(HERE, "data", "due.json")
 SAVE_EVERY = 10          # answers between pushes; a crash costs at most this many
-RATINGS = [("Again", 1), ("Hard", 2), ("Good", 3), ("Easy", 4)]
+
+AGAIN, GOOD = 1, 3       # Anki ease values; the only two this app ever records
+RATINGS = [("Again", AGAIN), ("Got it", GOOD)]
 
 st.set_page_config(page_title="Anki", page_icon="🇯🇵", layout="centered",
                    initial_sidebar_state="collapsed")
 
 STYLE = """
 <style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
+  :root {
+    --bg: #0d0f13;
+    --surface: #161a21;
+    --line: #242a35;
+    --fg: #e9ecf2;
+    --muted: #8b93a3;
+    --ok: #2fbf71;
+    --no: #e2554c;
+    --accent: #7aa2f7;
+  }
+
   #MainMenu, footer, header {visibility: hidden;}
-  .block-container {padding-top: 2.2rem; padding-bottom: 1rem; max-width: 640px;}
-  .word {font-size: clamp(2.6rem, 14vw, 4.2rem); line-height: 1.5; text-align: center;
-         margin: 1.2rem 0 0.4rem;}
-  .word ruby rt {font-size: 0.4em; opacity: 0.75;}
-  .reading {font-size: 1.4rem; text-align: center; opacity: 0.85;}
-  .meaning {font-size: 1.5rem; text-align: center; font-weight: 600; margin: 0.6rem 0 1.2rem;}
-  .sent {font-size: 1.35rem; line-height: 2.1; text-align: center; margin-top: 0.8rem;}
-  .sent ruby rt {font-size: 0.45em; opacity: 0.75;}
-  .sent-en {font-size: 1rem; text-align: center; opacity: 0.7; margin-top: 0.3rem;}
-  .meta {text-align: center; font-size: 0.78rem; opacity: 0.55; letter-spacing: 0.04em;}
-  .stButton > button {height: 3.1rem; font-size: 1.05rem; font-weight: 600;}
-  div[data-testid="stHorizontalBlock"] .stButton > button {height: 3.4rem;}
+  .stApp {background: var(--bg);}
+  html, body, [class*="st-"] {font-family: 'Inter', -apple-system, BlinkMacSystemFont,
+                              'Segoe UI', sans-serif;}
+  .block-container {padding-top: 1.4rem; padding-bottom: 1.2rem; max-width: 560px;}
+
+  /* progress: a hairline, not a chunky bar */
+  div[data-testid="stProgress"] > div > div {background: #1d222b; height: 3px;}
+  div[data-testid="stProgress"] > div > div > div {background: var(--accent); height: 3px;}
+
+  .meta {display: flex; justify-content: space-between; align-items: baseline;
+         font-size: 0.72rem; color: var(--muted); letter-spacing: 0.06em;
+         text-transform: uppercase; margin: 0.5rem 0 0.2rem;}
+  .meta .right {text-transform: none; letter-spacing: 0;}
+
+  /* the card itself */
+  .card {background: var(--surface); border: 1px solid var(--line); border-radius: 18px;
+         padding: 2.4rem 1.2rem; margin: 0.6rem 0 1.1rem;
+         box-shadow: 0 1px 2px rgba(0,0,0,0.4), 0 8px 24px rgba(0,0,0,0.22);}
+  .word {font-size: clamp(2.8rem, 15vw, 4.4rem); line-height: 1.45; text-align: center;
+         color: var(--fg); font-weight: 500; letter-spacing: 0.01em;}
+  .word ruby rt {font-size: 0.36em; opacity: 0.7; font-weight: 400;}
+  .reading {font-size: 1.25rem; text-align: center; color: var(--muted);
+            margin-top: 0.5rem; font-weight: 400;}
+  .meaning {font-size: 1.45rem; text-align: center; color: var(--fg); font-weight: 600;
+            margin-top: 0.9rem; line-height: 1.4;}
+  .rule {height: 1px; background: var(--line); margin: 1.4rem 0 1.1rem;}
+  .sent {font-size: 1.22rem; line-height: 2.0; text-align: center; color: var(--fg);
+         opacity: 0.92;}
+  .sent ruby rt {font-size: 0.42em; opacity: 0.65;}
+  .sent-en {font-size: 0.92rem; text-align: center; color: var(--muted);
+            margin-top: 0.5rem; line-height: 1.5;}
+
+  /* buttons: tall, rounded, thumb-sized */
+  .stButton > button {height: 3.5rem; font-size: 1.02rem; font-weight: 600;
+                      border-radius: 14px; border: 1px solid var(--line);
+                      background: #1b202a; color: var(--fg); transition: none;}
+  .stButton > button:hover {border-color: #39414f; color: var(--fg);}
+  .stButton > button:focus {box-shadow: none; color: var(--fg);}
+
+  /* the two graders, left red and right green */
+  div[data-testid="stHorizontalBlock"] div[data-testid="stColumn"]:nth-of-type(1)
+    .stButton > button {background: rgba(226,85,76,0.12); border-color: rgba(226,85,76,0.4);
+                        color: #ff8e86;}
+  div[data-testid="stHorizontalBlock"] div[data-testid="stColumn"]:nth-of-type(2)
+    .stButton > button {background: rgba(47,191,113,0.12); border-color: rgba(47,191,113,0.4);
+                        color: #5fd99a;}
+
+  div[data-testid="stMetricValue"] {font-size: 1.6rem;}
 </style>
 """
 st.markdown(STYLE, unsafe_allow_html=True)
@@ -57,7 +117,7 @@ def load_due():
 
 
 def push_answers(batch_id, answers):
-    """Commit data/reviews.json to the private repo. Returns (ok, error)."""
+    """Commit data/reviews.json to the repo. Returns (ok, error)."""
     try:
         token = st.secrets.get("GH_PAT")
     except Exception:
@@ -93,7 +153,7 @@ def gate():
         pin = None
     if not pin or st.session_state.get("unlocked"):
         return
-    st.title("Anki")
+    st.markdown('<div class="meta"><span>locked</span></div>', unsafe_allow_html=True)
     entered = st.text_input("PIN", type="password", label_visibility="collapsed",
                             placeholder="PIN")
     if entered:
@@ -109,8 +169,9 @@ gate()
 
 due = load_due()
 if not due or not due.get("cards"):
-    st.title("Nothing to review")
-    st.write("Run `python export_due.py` on the laptop, then push.")
+    st.markdown('<div class="card"><div class="meaning">Nothing due</div>'
+                '<div class="sent-en">Run <code>python export_due.py</code> on the laptop, '
+                'then push.</div></div>', unsafe_allow_html=True)
     st.stop()
 
 cards = due["cards"]
@@ -149,52 +210,56 @@ def answer(rating):
 # ---- finished ----
 if ss.i >= len(cards):
     save(force=True)
-    st.title("Done")
-    st.write(f"**{len(ss.answers)}** cards reviewed.")
     counts = {}
     for a in ss.answers:
         counts[a["rating"]] = counts.get(a["rating"], 0) + 1
-    cols = st.columns(4)
+    got = counts.get(GOOD, 0)
+    total = len(ss.answers) or 1
+    st.markdown(f'<div class="card"><div class="word">{round(100 * got / total)}%</div>'
+                f'<div class="reading">{got} of {len(ss.answers)} on the first pass</div>'
+                f'</div>', unsafe_allow_html=True)
+    cols = st.columns(2)
     for col, (label, val) in zip(cols, RATINGS):
         col.metric(label, counts.get(val, 0))
     if ss.saved_upto == len(ss.answers):
-        st.success("Saved to the repo. On the laptop: `git pull` then `python import_reviews.py`.")
+        st.success("Saved. On the laptop: `git pull`, then `python import_reviews.py`.")
     else:
-        st.warning(f"Not saved automatically ({ss.save_err}). Download and drop this into "
-                   f"`data/reviews.json` on the laptop instead.")
+        st.warning(f"Not saved automatically ({ss.save_err}). Download this and drop it "
+                   f"into `data/reviews.json` on the laptop instead.")
     st.download_button("Download reviews.json",
                        json.dumps({"batch_id": due["batch_id"], "answers": ss.answers}, indent=1),
-                       file_name="reviews.json", mime="application/json")
+                       file_name="reviews.json", mime="application/json",
+                       use_container_width=True)
     st.stop()
 
 # ---- one card ----
 card = cards[ss.i]
 done, total = ss.i, len(cards)
 st.progress(done / total)
-saved_note = "" if ss.saved_upto >= done else f" · {done - ss.saved_upto} unsaved"
-st.markdown(f'<div class="meta">{done} / {total}'
-            f' · {card["deck"]}{saved_note}</div>', unsafe_allow_html=True)
+saved_note = "" if ss.saved_upto >= done else f"{done - ss.saved_upto} unsaved"
+st.markdown(f'<div class="meta"><span>{done} / {total}</span>'
+            f'<span class="right">{saved_note}</span></div>', unsafe_allow_html=True)
 
 # The front is the bare word. Furigana belongs on the back — putting it here would hand
 # over the reading, which is most of what the card is asking for.
-front = card["word_furigana"] if ss.revealed else card["word"]
-st.markdown(f'<div class="word">{front}</div>', unsafe_allow_html=True)
-
 if not ss.revealed:
-    if st.button("Show answer", use_container_width=True, type="primary"):
+    st.markdown(f'<div class="card"><div class="word">{card["word"]}</div></div>',
+                unsafe_allow_html=True)
+    if st.button("Show", use_container_width=True, type="primary"):
         ss.revealed = True
         st.rerun()
 else:
+    back = [f'<div class="word">{card["word_furigana"] or card["word"]}</div>']
     if card["reading"]:
-        st.markdown(f'<div class="reading">{card["reading"]}</div>', unsafe_allow_html=True)
-    st.markdown(f'<div class="meaning">{card["meaning"]}</div>', unsafe_allow_html=True)
+        back.append(f'<div class="reading">{card["reading"]}</div>')
+    back.append(f'<div class="meaning">{card["meaning"]}</div>')
     if card["sentence"]:
-        st.markdown(f'<div class="sent">{card["sentence_furigana"] or card["sentence"]}</div>',
-                    unsafe_allow_html=True)
-        st.markdown(f'<div class="sent-en">{card["sentence_meaning"]}</div>',
-                    unsafe_allow_html=True)
-    st.write("")
-    for col, (label, val) in zip(st.columns(4), RATINGS):
+        back.append('<div class="rule"></div>')
+        back.append(f'<div class="sent">{card["sentence_furigana"] or card["sentence"]}</div>')
+        back.append(f'<div class="sent-en">{card["sentence_meaning"]}</div>')
+    st.markdown(f'<div class="card">{"".join(back)}</div>', unsafe_allow_html=True)
+
+    for col, (label, val) in zip(st.columns(2), RATINGS):
         if col.button(label, use_container_width=True, key=f"r{val}_{ss.i}"):
             answer(val)
             st.rerun()
